@@ -1,21 +1,32 @@
-// middleware.ts 推荐写法
-import type {
-  ParsedLocation,
-} from '@tanstack/react-router'
+import type { ParsedLocation } from '@tanstack/react-router'
 
-// 不再去 extends 那个不稳定的 BeforeLoadContextOptions
-export interface MiddlewareContext<M extends {}> {
+export interface MiddlewareContext<M extends {} = Record<string, any>> {
   to: ParsedLocation
   from?: ParsedLocation
   meta: M
-  // 允许访问 context 上的其他属性（比如 router, params 等）
-  [key: string]: any 
+  params: Record<string, string>
+  search: Record<string, unknown>
+  cause: 'preload' | 'enter' | 'stay'
 }
 
-export abstract class Middleware<M extends {}> {
-  register(ctx: MiddlewareContext<M>) {
+export abstract class Middleware<M extends {} = Record<string, any>> {
+  register(_ctx: MiddlewareContext<M>): boolean {
     return true
   }
 
-  abstract handle(ctx: MiddlewareContext<M>): Promise<void>
+  abstract handle(ctx: MiddlewareContext<M>, next: () => Promise<void>): Promise<void>
+}
+
+export function defineMiddleware<M extends {} = Record<string, any>>(def: {
+  register?: (ctx: MiddlewareContext<M>) => boolean
+  handle: (ctx: MiddlewareContext<M>, next: () => Promise<void>) => Promise<void>
+}): Middleware<M> {
+  return new class extends Middleware<M> {
+    register(ctx: MiddlewareContext<M>) {
+      return def.register ? def.register(ctx) : true
+    }
+    async handle(ctx: MiddlewareContext<M>, next: () => Promise<void>) {
+      return def.handle(ctx, next)
+    }
+  }()
 }

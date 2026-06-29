@@ -53,27 +53,23 @@ export function createRootRouteWithMiddleware<TContext extends {}>(
 
       if (lastLocation && ctx.location.href === lastLocation.href) return
 
-      // --- Meta 合并逻辑开始 ---
+      // --- Meta 合并逻辑（就近原则：子路由优先级高于父路由）---
 
-      // 2. 获取运行时 Context (来自 createRouter({ context: ... }))
-      // 这里的 ctx.context 是最初始的状态
+      // 1. 从 router context 开始（优先级最低）
       const meta = { ...(ctx.context as TContext) }
 
-      // 3. 处理 Root Route 定义的 context (对象或函数)
+      // 2. 应用 createRootRouteWithMiddleware 的 context 选项（高于 router context）
       if (rootContextDefinition) {
         const rootMeta = await getContextValue(rootContextDefinition, ctx)
-
         if (rootMeta && typeof rootMeta === 'object') {
           Object.assign(meta, rootMeta)
         }
       }
 
-      // 4. 处理子路由的 context (通过 matchRoutes)
-      for (let i = ctx.matches.length - 1; i >= 0; i--) {
-        const match = ctx.matches[i]
-        const context = await getContextValue(match.context, ctx)
-        if (context) Object.assign(meta, context)
-      }
+      // 3. 取目标路由（最深层）的累积 context，优先级最高
+      // TanStack Router 在 beforeLoad 执行前已将所有路由的 context 从 root→leaf 累积好，
+      // 最深层的 match.context 即为完整且正确的合并结果（子路由自然覆盖父路由）
+      Object.assign(meta, ctx.matches.at(-1)?.context ?? {})
 
       // --- Meta 合并逻辑结束 ---
 
@@ -81,17 +77,24 @@ export function createRootRouteWithMiddleware<TContext extends {}>(
         to: ctx.location,
         from: lastLocation,
         meta,
-        ...ctx,
+        params: ctx.params as Record<string, string>,
+        search: ctx.search as Record<string, unknown>,
+        cause: ctx.cause,
       }
 
       const _middlewares = middlewares.filter((m) => m.register(_ctx))
 
       if (_middlewares.length > 0) {
+        // 链式递归执行，支持洋葱模型（next 前后均可执行逻辑）
+        // 必须显式调用 next() 才能继续链路；不调用则链路在此终止
+        const runChain = async (index: number): Promise<void> => {
+          if (index >= _middlewares.length) return
+          const next = () => runChain(index + 1)
+          await _middlewares[index].handle(_ctx, next)
+        }
+
         try {
-          for (const middleware of _middlewares) {
-            await middleware.handle(_ctx)
-          }
-          lastLocation = ctx.location
+          await runChain(0)
         } catch (err) {
           if (err instanceof CancelError) {
             const targetPath = lastLocation?.pathname || defaultCancelPath

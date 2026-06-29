@@ -1,0 +1,1 @@
+{"root":["./src/auth.ts","./src/main.tsx","./src/router.ts","./src/types.ts","./src/__tests__/middleware.test.tsx","./src/middleware/authmiddleware.ts","./src/routes/__root.tsx","./src/routes/index.tsx","./src/test/setup.ts","./vite.config.ts","./vitest.config.ts"],"version":"6.0.3"}
